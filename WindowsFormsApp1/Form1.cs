@@ -6,6 +6,10 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Collections.Generic;
+using System.Linq;
+using System.Reflection.Emit;
 
 namespace WindowsFormsApp1
 {
@@ -13,10 +17,14 @@ namespace WindowsFormsApp1
     {
         private Font printFont;
         String content = "";
+        private BindingSource source = null;
+        List<ListProducts> ListProducts = null; 
 
         public Form1()
         {
             InitializeComponent();
+
+            _ = getApiProductAsync();
         }
 
         private void button1_Click(object sender, EventArgs e)
@@ -55,9 +63,10 @@ namespace WindowsFormsApp1
         {
              try
              {
+                textBoxProductId.Enabled = false;
                 string url = "http://localhost:8000/api/get-product";
 
-                string data = "{\"token\":\"b9cbbeb6661a760fef54e696b954ed17\"}";
+                string data = "{\"token\":\"b9cbbeb6661a760fef54e696b954ed17\",\"all_data\":1}";
                 HttpClient client = new HttpClient();
 
                 HttpContent queryString = new StringContent(data,Encoding.UTF8, "application/json");
@@ -65,25 +74,103 @@ namespace WindowsFormsApp1
                 HttpResponseMessage response = await client.PostAsync(url, queryString);
                 response.EnsureSuccessStatusCode();
 
-                //data.data?.ForEach(Console.WriteLine);
-
                 string responseBody = await response.Content.ReadAsStringAsync();
 
-                string items = JsonSerializer.Deserialize(responseBody);
+                JsonNode results = JsonNode.Parse(responseBody);
+                JsonNode items = JsonNode.Parse(results["items"].ToJsonString());
 
+                ListProducts = new List<ListProducts>();
 
-                textRespon.Text = responseBody;
+                foreach (JsonNode row in items.AsArray())
+                {
+                    JsonNode item = JsonNode.Parse(row.ToJsonString());
+                    Console.WriteLine($"JSON={item["id"]}");
 
-                //textBoxProductId.AutoCompleteMode = AutoCompleteMode.Suggest;
-                //textBoxProductId.AutoCompleteSource = AutoCompleteSource.CustomSource;
-                //AutoCompleteStringCollection DataCollection = new AutoCompleteStringCollection()
-                //textBoxProductId.AutoCompleteCustomSource = DataCollection;
-            }
+                    ListProducts.AddRange(new[] {
+                        new ListProducts() {id= (int)item["id"],keterangan=(string)item["keterangan"],harga=(string)item["harga"],
+                        text = (string)item["text"],harga_number = (int)item["harga_number"],barcode = (string)item["barcode"],
+                        qty = (int)item["qty"]
+                        }
+                    });
+
+                }
+
+                source = new BindingSource();
+                source.DataSource = ListProducts;
+
+                textRespon.Text = results.ToString();
+
+                textBoxProductId.AutoCompleteMode = AutoCompleteMode.Suggest;
+                textBoxProductId.AutoCompleteSource = AutoCompleteSource.CustomSource;
+                AutoCompleteStringCollection DataCollection = new AutoCompleteStringCollection();
+                textBoxProductId.AutoCompleteCustomSource = DataCollection;
+                textBoxProductId.AutoCompleteCustomSource.AddRange(ListProducts.Select(n => n.text).ToArray());
+                textBoxProductId.Focus();
+                textBoxProductId.Enabled = true;
+
+                //Binding textBind = new Binding("Text", source, "text", true, DataSourceUpdateMode.OnPropertyChanged);
+                //textBind.Parse += (s, evt) => {
+                //    source.CurrencyManager.Position = ListProducts.FindIndex(1, r => r.id.Equals(evt.Value));
+                //};
+
+                //textBoxProductId.DataBindings.Add(textBind);
+             }
              catch (Exception ex)
              {
                 Console.WriteLine("An error occurred while printing", ex.ToString());
                 MessageBox.Show(ex.ToString());
              }
+        }
+
+        private void textBoxProductId_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Enter)
+            {
+                e.SuppressKeyPress = true;
+
+                var product =  ListProducts.Find(r => r.text == textBoxProductId.Text);
+
+             
+                Console.WriteLine(textBoxProductId.Text);
+                Console.WriteLine(product.harga.ToString());
+                
+                int total = 0;int totalQty = 0;
+
+                var totalRow = product.harga_number * 1;
+                string[] data = {"1",textBoxProductId.Text, product.harga.ToString(), "1", totalRow.ToString(),product.harga_number.ToString()};
+
+                dataGridProduct.Rows.Add(data);
+
+                for (int rows = 0; rows < dataGridProduct.Rows.Count; rows++)
+                {
+                    if (dataGridProduct.Rows[rows].Cells[1].Value != null)
+                    {
+                        try {
+                            var qty = Convert.ToInt16(dataGridProduct.Rows[rows].Cells[3].Value.ToString());
+                            var harga = Convert.ToInt16(dataGridProduct.Rows[rows].Cells[5].Value.ToString());
+                            Console.WriteLine("Harga {0}", harga);
+
+                            totalQty += qty;
+                            total += qty * harga;
+                            //Console.WriteLine("Total {0}", total);
+                        }catch (Exception err)
+                        {
+                            Console.WriteLine("Error : ", err.ToString());
+                        }
+                    }
+                }
+
+                labelQty.Text = totalQty.ToString();
+                labelTotal.Text = total.ToString();
+
+                textBoxProductId.Text = "";
+                textBoxProductId.Focus();
+            }
+        }
+
+        private void calculate()
+        {
+
         }
 
         private void pd_PrintPage(object sender, PrintPageEventArgs ev)
@@ -109,12 +196,10 @@ namespace WindowsFormsApp1
             /**
             * NO, PRODUCT, HARGA, QTY, TOTAL
             */
-            string[] data = {
-            "1","Kopi","12000","1","12000"
-            };
-            dataGridProduct.Rows.Add(data);
-
-            getApiProductAsync();
+            //string[] data = {
+            //"1","Kopi","12000","1","12000"
+            //};
+            //dataGridProduct.Rows.Add(data);
         }
 
         private void dataGridProduct_CellContentClick(object sender, DataGridViewCellEventArgs e)
